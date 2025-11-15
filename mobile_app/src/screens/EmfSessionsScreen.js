@@ -72,8 +72,11 @@ export default function EmfSessionsScreen({ navigation }) {
           const remaining = Math.max(0, (session.capacity || 3) - (session.presentations?.length || 0));
           return (
             <Card key={session.id} style={{ marginBottom: 16 }}>
-              <Card.Title title={dateLabel} subtitle={`${session.start_time} - ${session.end_time} · ${session.room}`} />
-              <Card.Content>
+              <View style={{ backgroundColor: '#ede9fe', paddingHorizontal: 16, paddingVertical: 12, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                <Text style={{ fontWeight: '600', fontSize: 16 }}>{dateLabel}</Text>
+                <Text style={{ color: '#4b5563', marginTop: 4 }}>{`${session.start_time} - ${session.end_time} · ${session.room}`}</Text>
+              </View>
+              <Card.Content style={{ paddingTop: 12 }}>
                 <Text style={{ marginBottom: 8 }}>Slots remaining: {remaining}</Text>
                 {(session.presentations || []).length === 0 ? (
                   <Text style={{ color: '#475569' }}>No presenters yet.</Text>
