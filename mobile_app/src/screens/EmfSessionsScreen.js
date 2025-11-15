@@ -62,7 +62,7 @@ export default function EmfSessionsScreen({ navigation }) {
           Manage Existing Submission
         </Button>
         <Text style={{ marginBottom: 12, color: '#475569' }}>
-          EMF sessions run the first Tuesday of each month from 1:00–2:30 PM and support up to six 15-minute presentation slots.
+          EMF sessions run the first Tuesday of each month from 1:00–2:30 PM and support up to three 15-minute presentation slots.
         </Text>
         {error ? <Text style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</Text> : null}
         {!sessions.length && !loading ? <Text>No scheduled EMF sessions yet.</Text> : null}

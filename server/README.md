@@ -64,10 +64,10 @@ Health Checks
 - GET /email/verify -> returns `{ ok: true }` if SMTP transporter can connect/authenticate.
 
 Energy Markets & Finance Series
-- Keeps recurring first-Tuesday sessions for the Energy Markets & Finance track with a fixed 13:00–14:30 block split into six 15-minute slots (default capacity 3 presenters as requested).
+- Keeps recurring first-Tuesday sessions for the Energy Markets & Finance track with a fixed 13:00–14:30 block split into three 15-minute slots (default capacity 3 presenters).
 - PhD/Postdoc presenters self-register via `/emf/presentations`; confirmation email reminds them they can manage submissions using their email address.
 - Presenters can use `/emf/presentations/lookup` + PUT/DELETE endpoints with their email to edit or withdraw submissions.
 - Lookup returns all submissions for that email (and super users can list everything with `EMF_SUPER_EMAIL`).
 - Set `EMF_SUPER_EMAIL` in `.env` to allow a shared override email that can list all presentations and edit/delete any entry.
 - Daily cron job (default 10:00 server time) emails presenters 1 day before their talk. Override with `EMF_REMINDER_CRON` / `EMF_REMINDER_TZ`.
-- Default session settings may be customised with `EMF_DEFAULT_ROOM`, `EMF_START_TIME`, `EMF_END_TIME`, `EMF_MAX_PRESENTERS` (default 6 to match the six slots).
+- Default session settings may be customised with `EMF_DEFAULT_ROOM`, `EMF_START_TIME`, `EMF_END_TIME`, `EMF_MAX_PRESENTERS` (default 3 to match the three slots).

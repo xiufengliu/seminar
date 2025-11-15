@@ -90,9 +90,6 @@ const EMF_SLOT_LABELS = {
   slot1: '1:00 – 1:15 PM',
   slot2: '1:15 – 1:30 PM',
   slot3: '1:30 – 1:45 PM',
-  slot4: '1:45 – 2:00 PM',
-  slot5: '2:00 – 2:15 PM',
-  slot6: '2:15 – 2:30 PM',
 };
 const EMF_SLOT_KEYS = Object.keys(EMF_SLOT_LABELS);
 
