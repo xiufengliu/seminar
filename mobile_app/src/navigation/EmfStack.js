@@ -11,7 +11,7 @@ export default function EmfStack() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: '#0f172a' },
+        headerStyle: { backgroundColor: '#4c1d95' },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '600', fontSize: 18 },
       }}
