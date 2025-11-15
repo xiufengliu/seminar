@@ -89,14 +89,6 @@ export default function EmfSessionsScreen({ navigation }) {
               </View>
             )}
               </Card.Content>
-              <Card.Actions>
-                <Button onPress={() => navigation.navigate('EmfSubmit', { sessions, selectedSessionId: session.id })}>
-                  Add Presentation
-                </Button>
-                <Button onPress={() => navigation.navigate('EmfManage')}>
-                  Manage Mine
-                </Button>
-              </Card.Actions>
             </Card>
           );
         })}
