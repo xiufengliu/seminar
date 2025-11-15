@@ -18,8 +18,9 @@ export default function EmfManageScreen() {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [deleteState, setDeleteState] = useState({ loading: false, error: '' });
-  const [superMode, setSuperMode] = useState(false);
-  const [superPresentations, setSuperPresentations] = useState([]);
+  const [listMode, setListMode] = useState(false);
+  const [listMessage, setListMessage] = useState('');
+  const [candidatePresentations, setCandidatePresentations] = useState([]);
 
   const loadSessions = async () => {
     try {
@@ -35,26 +36,34 @@ export default function EmfManageScreen() {
   }, []);
 
   const onLookup = async () => {
-    if (!accessCode) {
-      setLookupError('Please enter your access code.');
+    const trimmedCode = accessCode.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedCode && !trimmedEmail) {
+      setLookupError('Enter either your access code or your email.');
+      return;
+    }
+    if (trimmedCode && trimmedEmail) {
+      setLookupError('Use either access code or email, not both.');
       return;
     }
     setLookupError('');
     setLoading(true);
     try {
-      const res = await lookupEmfPresentation(accessCode.trim(), email.trim());
+      const res = await lookupEmfPresentation(trimmedCode, trimmedEmail);
       if (Array.isArray(res.presentations)) {
-        setSuperMode(true);
-        setSuperPresentations(res.presentations);
+        setListMode(true);
+        setCandidatePresentations(res.presentations);
+        setListMessage(res.super ? 'Super access granted. Select a presentation below to manage.' : 'Select your presentation below.');
         setPresentation(null);
         setSelectedPresentationId(null);
         setSelectedSessionId(null);
         setForm({ presenter_name: '', presenter_email: '', title: '', abstract: '', preferred_slot: 'slot1' });
-        setSuccessMessage('Super access granted. Select a presentation below to manage.');
+        setSuccessMessage('');
       } else if (res.presentation) {
         const pres = res.presentation;
-        setSuperMode(!!res.super);
-        setSuperPresentations([]);
+        setListMode(false);
+        setCandidatePresentations([]);
+        setListMessage('');
         setPresentation(pres);
         setSelectedPresentationId(pres.id);
         setSelectedSessionId(pres.session_id);
@@ -72,14 +81,15 @@ export default function EmfManageScreen() {
       setPresentation(null);
       const apiError = e?.response?.data?.error || 'Unable to find presentation with that access code.';
       setLookupError(apiError);
-      setSuperMode(false);
-      setSuperPresentations([]);
+      setListMode(false);
+      setCandidatePresentations([]);
+      setListMessage('');
     }
     setLoading(false);
   };
 
   const handleSuperSelect = (id) => {
-    const record = superPresentations.find((p) => p.id === Number(id));
+    const record = candidatePresentations.find((p) => p.id === Number(id));
     if (!record) return;
     setPresentation(record);
     setSelectedPresentationId(record.id);
@@ -102,7 +112,7 @@ export default function EmfManageScreen() {
       const payload = {
         ...form,
         session_id: selectedSessionId,
-        manage_token: accessCode,
+        manage_token: accessCode.trim() || email.trim(),
       };
       const res = await updateEmfPresentation(presentation.id, payload);
       const updated = res.presentation;
@@ -127,10 +137,10 @@ export default function EmfManageScreen() {
     if (!presentation) return;
     setDeleteState({ loading: true, error: '' });
     try {
-      await deleteEmfPresentation(presentation.id, { manage_token: accessCode });
+      await deleteEmfPresentation(presentation.id, { manage_token: accessCode.trim() || email.trim() });
       setSuccessMessage('Presentation deleted.');
-      if (superMode) {
-        setSuperPresentations(prev => prev.filter(p => p.id !== presentation.id));
+      if (listMode) {
+        setCandidatePresentations(prev => prev.filter(p => p.id !== presentation.id));
       }
       setPresentation(null);
       setSelectedPresentationId(null);
@@ -148,24 +158,23 @@ export default function EmfManageScreen() {
     <ResponsiveContainer>
       <ScrollView contentContainerStyle={{ paddingVertical: 16 }}>
         <Text variant="titleMedium" style={{ marginBottom: 8 }}>Manage Submission</Text>
-        <Text style={{ marginBottom: 12, color: '#475569' }}>Enter the access code you received after submitting your presentation. Optionally add your email for verification.</Text>
+        <Text style={{ marginBottom: 12, color: '#475569' }}>Enter the access code you received after submitting your presentation or use your email address if you no longer have the code.</Text>
         <TextInput label="Access Code" value={accessCode} onChangeText={setAccessCode} autoCapitalize="characters" style={{ marginBottom: 12 }} />
-        <TextInput label="Email (optional)" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={{ marginBottom: 12 }} />
+        <TextInput label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={{ marginBottom: 12 }} />
         {lookupError ? <Text style={{ color: '#b91c1c', marginBottom: 12 }}>{lookupError}</Text> : null}
         <Button mode="contained" onPress={onLookup} loading={loading} disabled={loading}>
           Lookup Presentation
         </Button>
 
-        {superMode ? (
+        {listMode ? (
           <View style={{ marginTop: 24 }}>
             <Divider style={{ marginBottom: 16 }} />
-            {successMessage ? <Text style={{ color: '#166534', marginBottom: 12 }}>{successMessage}</Text> : null}
-            <Text variant="titleMedium" style={{ marginBottom: 8 }}>Select a Presentation</Text>
+            {listMessage ? <Text style={{ marginBottom: 12 }}>{listMessage}</Text> : null}
             <RadioButton.Group onValueChange={(value) => handleSuperSelect(Number(value))} value={selectedPresentationId?.toString() || ''}>
-              {superPresentations.length === 0 ? (
+              {candidatePresentations.length === 0 ? (
                 <HelperText type="info">No presentations available.</HelperText>
               ) : (
-                superPresentations.map((p) => (
+                candidatePresentations.map((p) => (
                   <RadioButton.Item
                     key={p.id}
                     value={p.id.toString()}
@@ -180,7 +189,7 @@ export default function EmfManageScreen() {
         {presentation ? (
           <View style={{ marginTop: 24 }}>
             <Divider style={{ marginBottom: 16 }} />
-            {successMessage && !superMode ? <Text style={{ color: '#166534', marginBottom: 12 }}>{successMessage}</Text> : null}
+            {successMessage && !listMode ? <Text style={{ color: '#166534', marginBottom: 12 }}>{successMessage}</Text> : null}
             <Text variant="titleMedium" style={{ marginBottom: 8 }}>Update Details</Text>
             <RadioButton.Group onValueChange={(value) => setSelectedSessionId(Number(value))} value={selectedSessionId?.toString() || ''}>
               {(sessions || []).map((session) => (

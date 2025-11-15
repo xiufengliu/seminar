@@ -443,24 +443,36 @@ app.get('/emf/presentations/:id', async (req, res) => {
 
 app.post('/emf/presentations/lookup', async (req, res) => {
   try {
-    const { access_code, presenter_email } = req.body || {};
-    if (!access_code) return res.status(400).json({ error: 'Access code required' });
-    if (EMF_SUPER_ACCESS_CODE && access_code === EMF_SUPER_ACCESS_CODE) {
+    const rawCode = (req.body?.access_code || '').trim();
+    const normalizedEmail = normalizeEmail(req.body?.presenter_email || '');
+    if (!rawCode && !normalizedEmail) return res.status(400).json({ error: 'Provide access code or email' });
+    if (rawCode && EMF_SUPER_ACCESS_CODE && rawCode === EMF_SUPER_ACCESS_CODE) {
       if (req.body?.presentation_id) {
         const row = await getPresentationWithSession(Number(req.body.presentation_id));
-        return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: access_code, super: true });
+        return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: rawCode, super: true });
       }
       const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
         JOIN emf_sessions s ON s.id = p.session_id
         ORDER BY s.session_date DESC, p.created_at DESC`);
       const mapped = rows.map(r => ({ ...r, slot_label: slotLabel(r.preferred_slot) }));
-      return res.json({ presentations: mapped, access_code: access_code, super: true });
+      return res.json({ presentations: mapped, access_code: rawCode, super: true });
     }
-    const row = await getPresentationWithSession(access_code, true);
-    if (presenter_email && normalizeEmail(row.presenter_email) !== normalizeEmail(presenter_email)) {
-      return res.status(403).json({ error: 'Email does not match this access code' });
+    if (rawCode) {
+      const row = await getPresentationWithSession(rawCode, true);
+      if (normalizedEmail && normalizeEmail(row.presenter_email) !== normalizedEmail) {
+        return res.status(403).json({ error: 'Email does not match this access code' });
+      }
+      return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: rawCode });
     }
-    res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: access_code });
+    // email-based lookup
+    const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
+      JOIN emf_sessions s ON s.id = p.session_id
+      WHERE LOWER(p.presenter_email) = ?
+      ORDER BY s.session_date DESC, p.created_at DESC`, [normalizedEmail]);
+    if (!rows.length) return res.status(404).json({ error: 'No presentations found for that email' });
+    const mapped = rows.map(r => ({ ...r, slot_label: slotLabel(r.preferred_slot) }));
+    if (mapped.length === 1) return res.json({ presentation: mapped[0], email: normalizedEmail });
+    return res.json({ presentations: mapped, email: normalizedEmail });
   } catch (e) {
     if (e.statusCode === 404) return res.status(404).json({ error: e.message });
     res.status(500).json({ error: e.message });
