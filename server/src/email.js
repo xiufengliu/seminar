@@ -149,3 +149,40 @@ export async function sendSeminarInvitation({ recipients, seminar }) {
   });
   return { ok: true };
 }
+
+export async function sendEmfReminder({ to, presenter_name, title, session_date, start_time, end_time, slot_label }) {
+  if (!to) return { ok: false, error: 'missing recipient' };
+  const transporter = buildTransport();
+  const subject = `Reminder: Upcoming EMF Presentation (${session_date})`;
+  const details = [
+    `Date: ${session_date}`,
+    `Time: ${start_time} - ${end_time}${slot_label ? ` (${slot_label})` : ''}`,
+    title ? `Topic: ${title}` : null,
+  ].filter(Boolean).join('\n');
+  const text = `Dear ${presenter_name || 'Presenter'},\n\nThis is a reminder for your Energy Markets & Finance presentation scheduled for tomorrow.\n\n${details}\n\nPlease arrive a few minutes early so that the session can begin on time.\n\nBest regards,\nSeminar Organizer`;
+  await transporter.sendMail({
+    from: `${SMTP_FROM_NAME || 'Seminar Organizer'} <${SMTP_USER}>`,
+    to,
+    subject,
+    text,
+  });
+  return { ok: true };
+}
+
+export async function sendEmfAccessEmail({ to, presenter_name, access_code, session_date, start_time, end_time, slot_label }) {
+  if (!to || !access_code) return { ok: false, error: 'missing fields' };
+  const transporter = buildTransport();
+  const subject = 'EMF Presentation Submission Received';
+  const details = [
+    session_date ? `Session: ${session_date} (${start_time || '13:00'} - ${end_time || '14:30'})` : null,
+    slot_label ? `Your slot: ${slot_label}` : null,
+  ].filter(Boolean).join('\n');
+  const text = `Dear ${presenter_name || 'Presenter'},\n\nThank you for submitting your Energy Markets & Finance presentation.\n\nYour access code (keep this safe to edit or cancel later):\n${access_code}\n\n${details}\n\nYou can return to the EMF portal at any time, choose "Manage Existing Submission", and enter this code to make changes.\n\nBest regards,\nSeminar Organizer`;
+  await transporter.sendMail({
+    from: `${SMTP_FROM_NAME || 'Seminar Organizer'} <${SMTP_USER}>`,
+    to,
+    subject,
+    text,
+  });
+  return { ok: true };
+}

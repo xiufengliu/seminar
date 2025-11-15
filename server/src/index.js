@@ -4,8 +4,10 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import dayjs from 'dayjs';
+import cron from 'node-cron';
+import crypto from 'crypto';
 import { openDb, initialize, checkTimeConflict } from './db.js';
-import { notifyRequestCoordinator, notifySubmitter, sendSeminarInvitation, verifySmtp, notifyAdmins } from './email.js';
+import { notifyRequestCoordinator, notifySubmitter, sendSeminarInvitation, verifySmtp, notifyAdmins, sendEmfReminder, sendEmfAccessEmail } from './email.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -31,6 +33,13 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret-change-
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false') === 'true';
 const COOKIE_SAMESITE = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
 const COOKIE_NAME = process.env.COOKIE_NAME || 'sid';
+const EMF_DEFAULT_ROOM = process.env.EMF_DEFAULT_ROOM || 'R025, B424';
+const EMF_MAX_PRESENTERS = Number(process.env.EMF_MAX_PRESENTERS || 6);
+const EMF_START_TIME = process.env.EMF_START_TIME || '13:00';
+const EMF_END_TIME = process.env.EMF_END_TIME || '14:30';
+const EMF_REMINDER_CRON = process.env.EMF_REMINDER_CRON || '0 10 * * *';
+const EMF_REMINDER_TZ = process.env.EMF_REMINDER_TZ || undefined;
+const EMF_SUPER_ACCESS_CODE = (process.env.EMF_SUPER_ACCESS_CODE || '').trim();
 // Resolve DB path robustly with safe fallbacks.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +67,189 @@ if (!DB_PATH) {
 
 const db = openDb(DB_PATH);
 initialize(db);
+
+const dbRun = (sql, params=[]) => new Promise((resolve, reject) => {
+  db.run(sql, params, function(err){
+    if (err) return reject(err);
+    resolve(this);
+  });
+});
+const dbGet = (sql, params=[]) => new Promise((resolve, reject) => {
+  db.get(sql, params, (err, row) => {
+    if (err) return reject(err);
+    resolve(row);
+  });
+});
+const dbAll = (sql, params=[]) => new Promise((resolve, reject) => {
+  db.all(sql, params, (err, rows) => {
+    if (err) return reject(err);
+    resolve(rows || []);
+  });
+});
+
+const EMF_SLOT_LABELS = {
+  slot1: '1:00 – 1:15 PM',
+  slot2: '1:15 – 1:30 PM',
+  slot3: '1:30 – 1:45 PM',
+  slot4: '1:45 – 2:00 PM',
+  slot5: '2:00 – 2:15 PM',
+  slot6: '2:15 – 2:30 PM',
+};
+const EMF_SLOT_KEYS = Object.keys(EMF_SLOT_LABELS);
+
+const normalizeSlot = (slot) => (slot && EMF_SLOT_KEYS.includes(slot)) ? slot : null;
+const slotLabel = (slot) => (slot && EMF_SLOT_LABELS[slot]) || '';
+const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+
+const firstTuesdayOfMonth = (dayjsInstance) => {
+  let cursor = dayjsInstance.startOf('month');
+  const guard = cursor.add(10, 'day');
+  while (cursor.day() !== 2 && cursor.isBefore(guard, 'day')) {
+    cursor = cursor.add(1, 'day');
+  }
+  return cursor;
+};
+
+async function ensureSessionForDate(dateStr) {
+  const existing = await dbGet(`SELECT * FROM emf_sessions WHERE session_date = ?`, [dateStr]);
+  if (existing) {
+    const needsUpdate = existing.start_time !== EMF_START_TIME
+      || existing.end_time !== EMF_END_TIME
+      || existing.room !== EMF_DEFAULT_ROOM
+      || (existing.capacity || 0) < EMF_MAX_PRESENTERS;
+    if (needsUpdate) {
+      await dbRun(`UPDATE emf_sessions SET start_time=?, end_time=?, room=?, capacity=? WHERE id=?`,
+        [EMF_START_TIME, EMF_END_TIME, EMF_DEFAULT_ROOM, EMF_MAX_PRESENTERS, existing.id]);
+      return dbGet(`SELECT * FROM emf_sessions WHERE id = ?`, [existing.id]);
+    }
+    return existing;
+  }
+  const insert = await dbRun(`INSERT INTO emf_sessions (session_date, start_time, end_time, room, capacity)
+    VALUES (?, ?, ?, ?, ?)` , [dateStr, EMF_START_TIME, EMF_END_TIME, EMF_DEFAULT_ROOM, EMF_MAX_PRESENTERS]);
+  return dbGet(`SELECT * FROM emf_sessions WHERE id = ?`, [insert.lastID]);
+}
+
+async function ensureUpcomingSessions(count = 3) {
+  const today = dayjs().startOf('day');
+  const upcoming = [];
+  let cursor = today.startOf('month');
+  let attempts = 0;
+  while (upcoming.length < count && attempts < 12) {
+    const firstTuesday = firstTuesdayOfMonth(cursor);
+    if (firstTuesday.isAfter(today) || firstTuesday.isSame(today, 'day')) {
+      // create session
+      const session = await ensureSessionForDate(firstTuesday.format('YYYY-MM-DD'));
+      upcoming.push(session);
+    }
+    cursor = cursor.add(1, 'month');
+    attempts += 1;
+  }
+  if (upcoming.length === 0) {
+    const fallbackDate = firstTuesdayOfMonth(today.add(1, 'month')).format('YYYY-MM-DD');
+    const session = await ensureSessionForDate(fallbackDate);
+    upcoming.push(session);
+  }
+  return upcoming;
+}
+
+async function loadSession(sessionId) {
+  const session = await dbGet(`SELECT * FROM emf_sessions WHERE id = ?`, [sessionId]);
+  if (!session) {
+    const err = new Error('Session not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  return session;
+}
+
+async function assertSessionCapacity(sessionId, slotKey, excludePresentationId) {
+  const session = await loadSession(sessionId);
+  const capacity = session.capacity || EMF_MAX_PRESENTERS;
+  const params = [sessionId];
+  let countQuery = `SELECT COUNT(*) as cnt FROM emf_presentations WHERE session_id = ?`;
+  if (excludePresentationId) {
+    countQuery += ' AND id != ?';
+    params.push(excludePresentationId);
+  }
+  const countRow = await dbGet(countQuery, params);
+  if ((countRow?.cnt || 0) >= capacity) {
+    const err = new Error('Session is full');
+    err.statusCode = 409;
+    throw err;
+  }
+  if (slotKey) {
+    const slotParams = excludePresentationId ? [sessionId, slotKey, excludePresentationId] : [sessionId, slotKey];
+    let slotQuery = `SELECT id FROM emf_presentations WHERE session_id = ? AND preferred_slot = ?`;
+    if (excludePresentationId) slotQuery += ' AND id != ?';
+    const slotRow = await dbGet(slotQuery, slotParams);
+    if (slotRow) {
+      const err = new Error('Preferred slot already taken');
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+  return session;
+}
+
+async function loadSessionsWithPresentations(query, params) {
+  const sessions = await dbAll(query, params);
+  if (!sessions.length) return [];
+  const ids = sessions.map(s => s.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const presentations = await dbAll(`SELECT * FROM emf_presentations WHERE session_id IN (${placeholders}) ORDER BY CASE preferred_slot
+    WHEN 'slot1' THEN 1 WHEN 'slot2' THEN 2 WHEN 'slot3' THEN 3 ELSE 4 END, created_at`, ids);
+  const grouped = presentations.reduce((acc, p) => {
+    acc[p.session_id] = acc[p.session_id] || [];
+    acc[p.session_id].push({ ...p, slot_label: slotLabel(p.preferred_slot) });
+    return acc;
+  }, {});
+  return sessions.map(s => ({ ...s, presentations: grouped[s.id] || [] }));
+}
+
+async function sendEmfReminders() {
+  const targetDate = dayjs().add(1, 'day').format('YYYY-MM-DD');
+  const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time FROM emf_presentations p
+    JOIN emf_sessions s ON s.id = p.session_id
+    WHERE s.session_date = ? AND p.reminder_sent = 0`, [targetDate]);
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      await sendEmfReminder({
+        to: row.presenter_email,
+        presenter_name: row.presenter_name,
+        title: row.title,
+        session_date: row.session_date,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        slot_label: slotLabel(row.preferred_slot),
+      });
+      await dbRun(`UPDATE emf_presentations SET reminder_sent = 1 WHERE id = ?`, [row.id]);
+      sent += 1;
+    } catch (err) {
+      console.error('Failed to send EMF reminder', row.id, err?.message || err);
+    }
+  }
+  return sent;
+}
+
+const getPresentationWithSession = async (idOrToken, byToken = false) => {
+  const where = byToken ? 'p.manage_token = ?' : 'p.id = ?';
+  const row = await dbGet(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
+    JOIN emf_sessions s ON s.id = p.session_id WHERE ${where}`, [idOrToken]);
+  if (!row) {
+    const err = new Error('Presentation not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  return row;
+};
+
+const hasPresentationAccess = (req, presentation, token) => {
+  if (isAdminRequest(req)) return true;
+  if (token && EMF_SUPER_ACCESS_CODE && token === EMF_SUPER_ACCESS_CODE) return true;
+  if (!token) return false;
+  return token === presentation.manage_token;
+};
 
 // Ensure uploads directory exists at repo root and serve it
 // Use path relative to this file to avoid cwd differences in systemd/pm2
@@ -113,6 +305,11 @@ function getSession(req){
   try { return jwt.verify(raw, SESSION_SECRET); } catch { return null; }
 }
 
+const isAdminRequest = (req) => {
+  const sess = getSession(req);
+  return !!(sess && sess.role === 'admin');
+};
+
 // Admin login -> sets HttpOnly cookie session
 app.post('/auth/login', (req, res) => {
   const { username, password } = req.body;
@@ -156,6 +353,169 @@ app.get('/seminars', (req, res) => {
     try { console.log(`[GET /seminars] scope=${scope} rows=${Array.isArray(rows) ? rows.length : 'err'}`); } catch {}
     res.json(rows);
   });
+});
+
+app.get('/emf/sessions', async (req, res) => {
+  try {
+    await ensureUpcomingSessions(3);
+    const include = (req.query.include || '').toString();
+    const scope = (req.query.scope || 'future').toString();
+    const today = dayjs().format('YYYY-MM-DD');
+    let query = 'SELECT * FROM emf_sessions';
+    let params = [];
+    if (scope === 'past') {
+      query += ' WHERE session_date < ? ORDER BY session_date DESC';
+      params = [today];
+    } else if (scope === 'all') {
+      query += ' ORDER BY session_date DESC';
+    } else {
+      query += ' WHERE session_date >= ? ORDER BY session_date ASC';
+      params = [today];
+    }
+    const rows = include.includes('presentations')
+      ? await loadSessionsWithPresentations(query, params)
+      : await dbAll(query, params);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/emf/sessions/ensure-next', async (req, res) => {
+  try {
+    const [session] = await ensureUpcomingSessions(1);
+    res.json(session);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/emf/presentations', async (req, res) => {
+  try {
+    const { session_id, presenter_name, presenter_email, affiliation, title, abstract, preferred_slot } = req.body || {};
+    if (!presenter_name || !presenter_email || !title) return res.status(400).json({ error: 'Missing presenter name, email or title' });
+    let session;
+    if (session_id) {
+      session = await loadSession(Number(session_id));
+    } else {
+      const upcoming = await ensureUpcomingSessions(1);
+      session = upcoming[0];
+    }
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const slotKey = normalizeSlot(preferred_slot);
+    await assertSessionCapacity(session.id, slotKey);
+    const token = crypto.randomUUID();
+    const insert = await dbRun(`INSERT INTO emf_presentations (session_id, presenter_name, presenter_email, affiliation, title, abstract, preferred_slot, manage_token, reminder_sent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`, [session.id, presenter_name, presenter_email, affiliation || '', title, abstract || '', slotKey, token]);
+    const presentation = await dbGet(`SELECT * FROM emf_presentations WHERE id = ?`, [insert.lastID]);
+    try {
+      await sendEmfAccessEmail({
+        to: presenter_email,
+        presenter_name,
+        access_code: token,
+        session_date: session.session_date,
+        start_time: session.start_time,
+        end_time: session.end_time,
+        slot_label: slotLabel(slotKey),
+      });
+    } catch (err) {
+      console.error('Failed to send EMF access email:', err?.message || err);
+    }
+    res.status(201).json({
+      presentation: { ...presentation, slot_label: slotLabel(presentation.preferred_slot) },
+      session,
+      access_code: token,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/emf/presentations/:id', async (req, res) => {
+  try {
+    const row = await getPresentationWithSession(Number(req.params.id));
+    res.json({ ...row, slot_label: slotLabel(row.preferred_slot) });
+  } catch (e) {
+    if (e.statusCode === 404) return res.status(404).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/emf/presentations/lookup', async (req, res) => {
+  try {
+    const { access_code, presenter_email } = req.body || {};
+    if (!access_code) return res.status(400).json({ error: 'Access code required' });
+    if (EMF_SUPER_ACCESS_CODE && access_code === EMF_SUPER_ACCESS_CODE) {
+      if (req.body?.presentation_id) {
+        const row = await getPresentationWithSession(Number(req.body.presentation_id));
+        return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: access_code, super: true });
+      }
+      const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
+        JOIN emf_sessions s ON s.id = p.session_id
+        ORDER BY s.session_date DESC, p.created_at DESC`);
+      const mapped = rows.map(r => ({ ...r, slot_label: slotLabel(r.preferred_slot) }));
+      return res.json({ presentations: mapped, access_code: access_code, super: true });
+    }
+    const row = await getPresentationWithSession(access_code, true);
+    if (presenter_email && normalizeEmail(row.presenter_email) !== normalizeEmail(presenter_email)) {
+      return res.status(403).json({ error: 'Email does not match this access code' });
+    }
+    res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: access_code });
+  } catch (e) {
+    if (e.statusCode === 404) return res.status(404).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/emf/presentations/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = await getPresentationWithSession(id);
+    const token = req.body?.manage_token;
+    if (!hasPresentationAccess(req, existing, token)) return res.status(403).json({ error: 'Not authorized' });
+    const updates = {
+      presenter_name: req.body?.presenter_name ?? existing.presenter_name,
+      presenter_email: req.body?.presenter_email ?? existing.presenter_email,
+      affiliation: req.body?.affiliation ?? (existing.affiliation || ''),
+      title: req.body?.title ?? existing.title,
+      abstract: req.body?.abstract ?? (existing.abstract || ''),
+      preferred_slot: normalizeSlot(req.body?.preferred_slot) || existing.preferred_slot,
+      session_id: req.body?.session_id ? Number(req.body.session_id) : existing.session_id,
+    };
+    const session = await assertSessionCapacity(updates.session_id, updates.preferred_slot, id);
+    await dbRun(`UPDATE emf_presentations SET session_id=?, presenter_name=?, presenter_email=?, affiliation=?, title=?, abstract=?, preferred_slot=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      [session.id, updates.presenter_name, updates.presenter_email, updates.affiliation || '', updates.title, updates.abstract || '', updates.preferred_slot, id]);
+    const fresh = await getPresentationWithSession(id);
+    res.json({ presentation: { ...fresh, slot_label: slotLabel(fresh.preferred_slot) } });
+  } catch (e) {
+    if (e.statusCode === 404) return res.status(404).json({ error: e.message });
+    if (e.statusCode === 409) return res.status(409).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/emf/presentations/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = await getPresentationWithSession(id);
+    const token = req.body?.manage_token || req.query?.access_code;
+    if (!hasPresentationAccess(req, existing, token)) return res.status(403).json({ error: 'Not authorized' });
+    await dbRun(`DELETE FROM emf_presentations WHERE id = ?`, [id]);
+    res.json({ deleted: true });
+  } catch (e) {
+    if (e.statusCode === 404) return res.status(404).json({ error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/emf/reminders/run', async (req, res) => {
+  if (!isAdminRequest(req)) return res.status(401).json({ error: 'Admin session required' });
+  try {
+    const sent = await sendEmfReminders();
+    res.json({ ok: true, sent });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Debug endpoint to verify DB path and counts
@@ -346,6 +706,16 @@ try {
     });
   }
 } catch {}
+
+try {
+  cron.schedule(EMF_REMINDER_CRON, () => {
+    sendEmfReminders().then((count) => {
+      if (count) console.log(`[EMF reminders] sent ${count} reminder(s)`);
+    }).catch((err) => console.error('EMF reminder job failed', err?.message || err));
+  }, EMF_REMINDER_TZ ? { timezone: EMF_REMINDER_TZ } : undefined);
+} catch (err) {
+  console.error('Failed to schedule EMF reminder cron job:', err?.message || err);
+}
 
 app.listen(PORT, () => {
   console.log(`API listening on :${PORT}`);

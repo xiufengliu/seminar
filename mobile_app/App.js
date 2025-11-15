@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import CalendarStack from './src/navigation/CalendarStack';
 import AdminStack from './src/navigation/AdminStack';
 import RequestsStack from './src/navigation/RequestsStack';
+import EmfStack from './src/navigation/EmfStack';
 import { AuthProvider } from './src/context/AuthContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -33,6 +34,8 @@ export default function App() {
                   iconName = focused ? 'calendar-month' : 'calendar-month-outline';
                 } else if (route.name === 'Requests') {
                   iconName = focused ? 'book-edit' : 'book-edit-outline';
+                } else if (route.name === 'EMF') {
+                  iconName = 'presentation-play';
                 } else if (route.name === 'Admin') {
                   iconName = focused ? 'account-group' : 'account-group-outline';
                 }
@@ -44,6 +47,7 @@ export default function App() {
           >
             <Tab.Screen name="Calendar" component={CalendarStack} options={{ title: 'Calendar' }} />
             <Tab.Screen name="Requests" component={RequestsStack} options={{ title: 'Requests' }} />
+            <Tab.Screen name="EMF" component={EmfStack} options={{ title: 'EMF' }} />
             <Tab.Screen name="Admin" component={AdminStack} options={{ title: 'Admin' }} />
           </Tab.Navigator>
         </NavigationContainer>

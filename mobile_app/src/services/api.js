@@ -37,4 +37,12 @@ export const updateRequest = (id, data) => api.put(`/requests/${id}`, data).then
 export const approveRequest = (id) => api.post(`/requests/${id}/approve`).then(r => r.data);
 export const rejectRequest = (id) => api.post(`/requests/${id}/reject`).then(r => r.data);
 
+// Energy Markets & Finance presentations
+export const listEmfSessions = (scope='future') => api.get('/emf/sessions', { params: { include: 'presentations', scope } }).then(r => r.data);
+export const ensureNextEmfSession = () => api.post('/emf/sessions/ensure-next').then(r => r.data);
+export const submitEmfPresentation = (data) => api.post('/emf/presentations', data).then(r => r.data);
+export const lookupEmfPresentation = (access_code, presenter_email) => api.post('/emf/presentations/lookup', { access_code, presenter_email }).then(r => r.data);
+export const updateEmfPresentation = (id, data) => api.put(`/emf/presentations/${id}`, data).then(r => r.data);
+export const deleteEmfPresentation = (id, data) => api.delete(`/emf/presentations/${id}`, { data }).then(r => r.data);
+
 export default api;
