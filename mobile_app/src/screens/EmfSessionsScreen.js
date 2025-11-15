@@ -77,9 +77,9 @@ export default function EmfSessionsScreen({ navigation }) {
                   <View>
                 {(session.presentations || []).map((p) => (
                   <Chip key={p.id} style={{ marginBottom: 6 }} icon="account">
+                    {p.slot_label ? `${p.slot_label} · ` : ''}
                     {p.presenter_name}
                     {p.title ? ` – ${p.title}` : ''}
-                    {p.slot_label ? ` · ${p.slot_label}` : ''}
                   </Chip>
                 ))}
               </View>
