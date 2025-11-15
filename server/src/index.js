@@ -34,7 +34,7 @@ const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false') === 'true';
 const COOKIE_SAMESITE = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
 const COOKIE_NAME = process.env.COOKIE_NAME || 'sid';
 const EMF_DEFAULT_ROOM = process.env.EMF_DEFAULT_ROOM || 'R025, B424';
-const EMF_MAX_PRESENTERS = Number(process.env.EMF_MAX_PRESENTERS || 6);
+const EMF_MAX_PRESENTERS = Number(process.env.EMF_MAX_PRESENTERS || 3);
 const EMF_START_TIME = process.env.EMF_START_TIME || '13:00';
 const EMF_END_TIME = process.env.EMF_END_TIME || '14:30';
 const EMF_REMINDER_CRON = process.env.EMF_REMINDER_CRON || '0 10 * * *';
@@ -233,10 +233,10 @@ async function sendEmfReminders() {
   return sent;
 }
 
-const getPresentationWithSession = async (idOrToken, byToken = false) => {
+const getPresentationWithSession = async (id, byToken = false) => {
   const where = byToken ? 'p.manage_token = ?' : 'p.id = ?';
   const row = await dbGet(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
-    JOIN emf_sessions s ON s.id = p.session_id WHERE ${where}`, [idOrToken]);
+    JOIN emf_sessions s ON s.id = p.session_id WHERE ${where}`, [id]);
   if (!row) {
     const err = new Error('Presentation not found');
     err.statusCode = 404;
@@ -406,9 +406,8 @@ app.post('/emf/presentations', async (req, res) => {
     if (!session) return res.status(404).json({ error: 'Session not found' });
     const slotKey = normalizeSlot(preferred_slot);
     await assertSessionCapacity(session.id, slotKey);
-    const token = crypto.randomUUID();
     const insert = await dbRun(`INSERT INTO emf_presentations (session_id, presenter_name, presenter_email, affiliation, title, abstract, preferred_slot, manage_token, reminder_sent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`, [session.id, presenter_name, presenter_email, affiliation || '', title, abstract || '', slotKey, token]);
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0)`, [session.id, presenter_name, presenter_email, affiliation || '', title, abstract || '', slotKey]);
     const presentation = await dbGet(`SELECT * FROM emf_presentations WHERE id = ?`, [insert.lastID]);
     try {
       await sendEmfConfirmation({

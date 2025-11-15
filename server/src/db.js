@@ -54,7 +54,7 @@ export function initialize(db) {
       start_time TEXT NOT NULL DEFAULT '13:00',
       end_time TEXT NOT NULL DEFAULT '14:30',
       room TEXT NOT NULL DEFAULT 'TBD',
-      capacity INTEGER NOT NULL DEFAULT 6,
+      capacity INTEGER NOT NULL DEFAULT 3,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
