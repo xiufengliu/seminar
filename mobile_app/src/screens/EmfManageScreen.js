@@ -7,7 +7,6 @@ import ResponsiveContainer from '../ui/ResponsiveContainer';
 import { EMF_SLOT_OPTIONS } from '../ui/emfSlots';
 
 export default function EmfManageScreen() {
-  const [accessCode, setAccessCode] = useState('');
   const [email, setEmail] = useState('');
   const [lookupError, setLookupError] = useState('');
   const [presentation, setPresentation] = useState(null);
@@ -36,20 +35,15 @@ export default function EmfManageScreen() {
   }, []);
 
   const onLookup = async () => {
-    const trimmedCode = accessCode.trim();
     const trimmedEmail = email.trim();
-    if (!trimmedCode && !trimmedEmail) {
-      setLookupError('Enter either your access code or your email.');
-      return;
-    }
-    if (trimmedCode && trimmedEmail) {
-      setLookupError('Use either access code or email, not both.');
+    if (!trimmedEmail) {
+      setLookupError('Enter your email to look up submissions.');
       return;
     }
     setLookupError('');
     setLoading(true);
     try {
-      const res = await lookupEmfPresentation(trimmedCode, trimmedEmail);
+      const res = await lookupEmfPresentation(trimmedEmail);
       if (Array.isArray(res.presentations)) {
         setListMode(true);
         setCandidatePresentations(res.presentations);
@@ -79,7 +73,7 @@ export default function EmfManageScreen() {
     } catch (e) {
       console.warn('lookup failed', e?.response?.data || e.message);
       setPresentation(null);
-      const apiError = e?.response?.data?.error || 'Unable to find presentation with that access code.';
+      const apiError = e?.response?.data?.error || 'Unable to find presentation with that email.';
       setLookupError(apiError);
       setListMode(false);
       setCandidatePresentations([]);
@@ -112,7 +106,7 @@ export default function EmfManageScreen() {
       const payload = {
         ...form,
         session_id: selectedSessionId,
-        manage_token: accessCode.trim() || email.trim(),
+        manage_email: email.trim(),
       };
       const res = await updateEmfPresentation(presentation.id, payload);
       const updated = res.presentation;
@@ -137,7 +131,7 @@ export default function EmfManageScreen() {
     if (!presentation) return;
     setDeleteState({ loading: true, error: '' });
     try {
-      await deleteEmfPresentation(presentation.id, { manage_token: accessCode.trim() || email.trim() });
+      await deleteEmfPresentation(presentation.id, { manage_email: email.trim() });
       setSuccessMessage('Presentation deleted.');
       if (listMode) {
         setCandidatePresentations(prev => prev.filter(p => p.id !== presentation.id));
@@ -158,8 +152,7 @@ export default function EmfManageScreen() {
     <ResponsiveContainer>
       <ScrollView contentContainerStyle={{ paddingVertical: 16 }}>
         <Text variant="titleMedium" style={{ marginBottom: 8 }}>Manage Submission</Text>
-        <Text style={{ marginBottom: 12, color: '#475569' }}>Enter the access code you received after submitting your presentation or use your email address if you no longer have the code.</Text>
-        <TextInput label="Access Code" value={accessCode} onChangeText={setAccessCode} autoCapitalize="characters" style={{ marginBottom: 12 }} />
+        <Text style={{ marginBottom: 12, color: '#475569' }}>Enter the email you used when submitting your presentation. Super users can enter the shared admin email.</Text>
         <TextInput label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={{ marginBottom: 12 }} />
         {lookupError ? <Text style={{ color: '#b91c1c', marginBottom: 12 }}>{lookupError}</Text> : null}
         <Button mode="contained" onPress={onLookup} loading={loading} disabled={loading}>

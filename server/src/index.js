@@ -7,7 +7,7 @@ import dayjs from 'dayjs';
 import cron from 'node-cron';
 import crypto from 'crypto';
 import { openDb, initialize, checkTimeConflict } from './db.js';
-import { notifyRequestCoordinator, notifySubmitter, sendSeminarInvitation, verifySmtp, notifyAdmins, sendEmfReminder, sendEmfAccessEmail } from './email.js';
+import { notifyRequestCoordinator, notifySubmitter, sendSeminarInvitation, verifySmtp, notifyAdmins, sendEmfReminder, sendEmfConfirmation } from './email.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -39,7 +39,6 @@ const EMF_START_TIME = process.env.EMF_START_TIME || '13:00';
 const EMF_END_TIME = process.env.EMF_END_TIME || '14:30';
 const EMF_REMINDER_CRON = process.env.EMF_REMINDER_CRON || '0 10 * * *';
 const EMF_REMINDER_TZ = process.env.EMF_REMINDER_TZ || undefined;
-const EMF_SUPER_ACCESS_CODE = (process.env.EMF_SUPER_ACCESS_CODE || '').trim();
 // Resolve DB path robustly with safe fallbacks.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,6 +99,8 @@ const EMF_SLOT_KEYS = Object.keys(EMF_SLOT_LABELS);
 const normalizeSlot = (slot) => (slot && EMF_SLOT_KEYS.includes(slot)) ? slot : null;
 const slotLabel = (slot) => (slot && EMF_SLOT_LABELS[slot]) || '';
 const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+const EMF_SUPER_EMAIL = normalizeEmail(process.env.EMF_SUPER_EMAIL || '');
+const isSuperEmail = (email) => !!email && normalizeEmail(email) === EMF_SUPER_EMAIL;
 
 const firstTuesdayOfMonth = (dayjsInstance) => {
   let cursor = dayjsInstance.startOf('month');
@@ -244,11 +245,12 @@ const getPresentationWithSession = async (idOrToken, byToken = false) => {
   return row;
 };
 
-const hasPresentationAccess = (req, presentation, token) => {
+const hasPresentationAccess = (req, presentation, requesterEmail) => {
   if (isAdminRequest(req)) return true;
-  if (token && EMF_SUPER_ACCESS_CODE && token === EMF_SUPER_ACCESS_CODE) return true;
-  if (!token) return false;
-  return token === presentation.manage_token;
+  const normalized = normalizeEmail(requesterEmail);
+  if (!normalized) return false;
+  if (isSuperEmail(normalized)) return true;
+  return normalized === normalizeEmail(presentation.presenter_email);
 };
 
 // Ensure uploads directory exists at repo root and serve it
@@ -409,22 +411,20 @@ app.post('/emf/presentations', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`, [session.id, presenter_name, presenter_email, affiliation || '', title, abstract || '', slotKey, token]);
     const presentation = await dbGet(`SELECT * FROM emf_presentations WHERE id = ?`, [insert.lastID]);
     try {
-      await sendEmfAccessEmail({
+      await sendEmfConfirmation({
         to: presenter_email,
         presenter_name,
-        access_code: token,
         session_date: session.session_date,
         start_time: session.start_time,
         end_time: session.end_time,
         slot_label: slotLabel(slotKey),
       });
     } catch (err) {
-      console.error('Failed to send EMF access email:', err?.message || err);
+      console.error('Failed to send EMF confirmation email:', err?.message || err);
     }
     res.status(201).json({
       presentation: { ...presentation, slot_label: slotLabel(presentation.preferred_slot) },
       session,
-      access_code: token,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -443,36 +443,24 @@ app.get('/emf/presentations/:id', async (req, res) => {
 
 app.post('/emf/presentations/lookup', async (req, res) => {
   try {
-    const rawCode = (req.body?.access_code || '').trim();
-    const normalizedEmail = normalizeEmail(req.body?.presenter_email || '');
-    if (!rawCode && !normalizedEmail) return res.status(400).json({ error: 'Provide access code or email' });
-    if (rawCode && EMF_SUPER_ACCESS_CODE && rawCode === EMF_SUPER_ACCESS_CODE) {
-      if (req.body?.presentation_id) {
-        const row = await getPresentationWithSession(Number(req.body.presentation_id));
-        return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: rawCode, super: true });
-      }
-      const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
-        JOIN emf_sessions s ON s.id = p.session_id
-        ORDER BY s.session_date DESC, p.created_at DESC`);
+    const normalizedEmail = normalizeEmail(req.body?.presenter_email || req.body?.email || '');
+    if (!normalizedEmail) return res.status(400).json({ error: 'Email required' });
+    const fetchRows = async () => dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
+      JOIN emf_sessions s ON s.id = p.session_id
+      ORDER BY s.session_date DESC, p.created_at DESC`);
+    if (isSuperEmail(normalizedEmail)) {
+      const rows = await fetchRows();
       const mapped = rows.map(r => ({ ...r, slot_label: slotLabel(r.preferred_slot) }));
-      return res.json({ presentations: mapped, access_code: rawCode, super: true });
+      return res.json({ presentations: mapped, super: true });
     }
-    if (rawCode) {
-      const row = await getPresentationWithSession(rawCode, true);
-      if (normalizedEmail && normalizeEmail(row.presenter_email) !== normalizedEmail) {
-        return res.status(403).json({ error: 'Email does not match this access code' });
-      }
-      return res.json({ presentation: { ...row, slot_label: slotLabel(row.preferred_slot) }, access_code: rawCode });
-    }
-    // email-based lookup
     const rows = await dbAll(`SELECT p.*, s.session_date, s.start_time, s.end_time, s.room FROM emf_presentations p
       JOIN emf_sessions s ON s.id = p.session_id
       WHERE LOWER(p.presenter_email) = ?
       ORDER BY s.session_date DESC, p.created_at DESC`, [normalizedEmail]);
     if (!rows.length) return res.status(404).json({ error: 'No presentations found for that email' });
     const mapped = rows.map(r => ({ ...r, slot_label: slotLabel(r.preferred_slot) }));
-    if (mapped.length === 1) return res.json({ presentation: mapped[0], email: normalizedEmail });
-    return res.json({ presentations: mapped, email: normalizedEmail });
+    if (mapped.length === 1) return res.json({ presentation: mapped[0] });
+    return res.json({ presentations: mapped });
   } catch (e) {
     if (e.statusCode === 404) return res.status(404).json({ error: e.message });
     res.status(500).json({ error: e.message });
@@ -483,8 +471,8 @@ app.put('/emf/presentations/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const existing = await getPresentationWithSession(id);
-    const token = req.body?.manage_token;
-    if (!hasPresentationAccess(req, existing, token)) return res.status(403).json({ error: 'Not authorized' });
+    const requesterEmail = req.body?.manage_email || req.body?.presenter_email;
+    if (!hasPresentationAccess(req, existing, requesterEmail)) return res.status(403).json({ error: 'Not authorized' });
     const updates = {
       presenter_name: req.body?.presenter_name ?? existing.presenter_name,
       presenter_email: req.body?.presenter_email ?? existing.presenter_email,
@@ -510,8 +498,8 @@ app.delete('/emf/presentations/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const existing = await getPresentationWithSession(id);
-    const token = req.body?.manage_token || req.query?.access_code;
-    if (!hasPresentationAccess(req, existing, token)) return res.status(403).json({ error: 'Not authorized' });
+    const requesterEmail = req.body?.manage_email || req.query?.email;
+    if (!hasPresentationAccess(req, existing, requesterEmail)) return res.status(403).json({ error: 'Not authorized' });
     await dbRun(`DELETE FROM emf_presentations WHERE id = ?`, [id]);
     res.json({ deleted: true });
   } catch (e) {

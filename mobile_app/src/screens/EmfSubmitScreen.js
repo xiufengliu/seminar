@@ -47,7 +47,7 @@ export default function EmfSubmitScreen({ route, navigation }) {
     try {
       const payload = { ...form, session_id: selectedSessionId };
       const res = await submitEmfPresentation(payload);
-      setResult(res);
+      setResult(res?.presentation || null);
       setForm({ presenter_name: '', presenter_email: '', title: '', abstract: '', preferred_slot: 'slot1' });
     } catch (e) {
       console.warn('submit presentation failed', e?.response?.data || e.message);
@@ -63,8 +63,7 @@ export default function EmfSubmitScreen({ route, navigation }) {
         {result ? (
           <View style={{ padding: 16, borderRadius: 8, backgroundColor: '#dcfce7', marginBottom: 20 }}>
             <Text variant="titleMedium" style={{ marginBottom: 6 }}>Submission Received!</Text>
-            <Text style={{ marginBottom: 4 }}>We emailed the organizers. Keep this access code so you can reference your submission:</Text>
-            <Text selectable style={{ fontWeight: '700', fontSize: 16 }}>{result.access_code}</Text>
+            <Text style={{ marginBottom: 4 }}>We emailed the organizers. You can return later and manage this submission using the email {result.presenter_email || 'you provided'}.</Text>
           </View>
         ) : null}
         {error ? <Text style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</Text> : null}

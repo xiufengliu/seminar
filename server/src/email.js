@@ -169,15 +169,15 @@ export async function sendEmfReminder({ to, presenter_name, title, session_date,
   return { ok: true };
 }
 
-export async function sendEmfAccessEmail({ to, presenter_name, access_code, session_date, start_time, end_time, slot_label }) {
-  if (!to || !access_code) return { ok: false, error: 'missing fields' };
+export async function sendEmfConfirmation({ to, presenter_name, session_date, start_time, end_time, slot_label }) {
+  if (!to) return { ok: false, error: 'missing fields' };
   const transporter = buildTransport();
   const subject = 'EMF Presentation Submission Received';
   const details = [
     session_date ? `Session: ${session_date} (${start_time || '13:00'} - ${end_time || '14:30'})` : null,
     slot_label ? `Your slot: ${slot_label}` : null,
   ].filter(Boolean).join('\n');
-  const text = `Dear ${presenter_name || 'Presenter'},\n\nThank you for submitting your Energy Markets & Finance presentation.\n\nYour access code (keep this safe to edit or cancel later):\n${access_code}\n\n${details}\n\nYou can return to the EMF portal at any time, choose "Manage Existing Submission", and enter this code to make changes.\n\nBest regards,\nSeminar Organizer`;
+  const text = `Dear ${presenter_name || 'Presenter'},\n\nThank you for submitting your Energy Markets & Finance presentation.\n\n${details}\n\nYou can return to the EMF portal at any time, choose "Manage Existing Submission", and simply enter this email address to update or cancel your talk.\n\nBest regards,\nSeminar Organizer`;
   await transporter.sendMail({
     from: `${SMTP_FROM_NAME || 'Seminar Organizer'} <${SMTP_USER}>`,
     to,
