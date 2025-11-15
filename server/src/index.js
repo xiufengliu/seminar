@@ -114,7 +114,7 @@ async function ensureSessionForDate(dateStr) {
     const needsUpdate = existing.start_time !== EMF_START_TIME
       || existing.end_time !== EMF_END_TIME
       || existing.room !== EMF_DEFAULT_ROOM
-      || (existing.capacity || 0) < EMF_MAX_PRESENTERS;
+      || (existing.capacity || 0) !== EMF_MAX_PRESENTERS;
     if (needsUpdate) {
       await dbRun(`UPDATE emf_sessions SET start_time=?, end_time=?, room=?, capacity=? WHERE id=?`,
         [EMF_START_TIME, EMF_END_TIME, EMF_DEFAULT_ROOM, EMF_MAX_PRESENTERS, existing.id]);
