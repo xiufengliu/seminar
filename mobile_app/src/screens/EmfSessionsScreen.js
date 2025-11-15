@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, RefreshControl, View } from 'react-native';
 import { Button, Card, Chip, Text, ActivityIndicator, SegmentedButtons } from 'react-native-paper';
 import { format, parseISO } from 'date-fns';
+import { useFocusEffect } from '@react-navigation/native';
 import { listEmfSessions } from '../services/api';
 import ResponsiveContainer from '../ui/ResponsiveContainer';
 
@@ -26,6 +27,9 @@ export default function EmfSessionsScreen({ navigation }) {
   }, [scope]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
+  useFocusEffect(useCallback(() => {
+    fetchSessions();
+  }, [fetchSessions]));
 
   return (
     <ResponsiveContainer>

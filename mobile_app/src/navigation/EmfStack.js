@@ -1,5 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { HeaderBackButton } from '@react-navigation/elements';
 import EmfSessionsScreen from '../screens/EmfSessionsScreen';
 import EmfSubmitScreen from '../screens/EmfSubmitScreen';
 import EmfManageScreen from '../screens/EmfManageScreen';
@@ -16,8 +17,34 @@ export default function EmfStack() {
       }}
     >
       <Stack.Screen name="EmfSessions" component={EmfSessionsScreen} options={{ title: 'EMF Presentations' }} />
-      <Stack.Screen name="EmfSubmit" component={EmfSubmitScreen} options={{ title: 'Submit Presentation' }} />
-      <Stack.Screen name="EmfManage" component={EmfManageScreen} options={{ title: 'Manage Presentation' }} />
+      <Stack.Screen
+        name="EmfSubmit"
+        component={EmfSubmitScreen}
+        options={({ navigation }) => ({
+          title: 'Submit Presentation',
+          headerLeft: (props) => (
+            <HeaderBackButton
+              {...props}
+              label="Back to EMF Presentations"
+              onPress={() => navigation.navigate('EmfSessions')}
+            />
+          ),
+        })}
+      />
+      <Stack.Screen
+        name="EmfManage"
+        component={EmfManageScreen}
+        options={({ navigation }) => ({
+          title: 'Manage Presentation',
+          headerLeft: (props) => (
+            <HeaderBackButton
+              {...props}
+              label="Back to EMF Presentations"
+              onPress={() => navigation.navigate('EmfSessions')}
+            />
+          ),
+        })}
+      />
     </Stack.Navigator>
   );
 }
