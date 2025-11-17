@@ -17,4 +17,4 @@ Features
 - Admin area for CRUD and approvals.
 - Invitation flow triggers backend ICS email.
 - Optional local reminders via Expo Notifications (stubbed).
-- Dedicated "EMF Presentations" tab where PhDs/Postdocs can view upcoming first-Tuesday sessions, submit themselves, manage existing submissions (edit/delete) using their email address, and pick one of three 15-minute slots between 1:00–1:45 PM. Super users can enter the shared admin email to list and manage any submission.
+- Dedicated "EMF Presentations" tab where PhDs/Postdocs can view upcoming first-Tuesday sessions, submit themselves, manage existing submissions (edit/delete) using their email address, and pick one of three 10-minute slots between 1:00–1:30 PM. Super users can enter the shared admin email to list and manage any submission.

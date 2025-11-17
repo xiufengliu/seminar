@@ -67,19 +67,19 @@ if (!DB_PATH) {
 const db = openDb(DB_PATH);
 initialize(db);
 
-const dbRun = (sql, params=[]) => new Promise((resolve, reject) => {
-  db.run(sql, params, function(err){
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, function (err) {
     if (err) return reject(err);
     resolve(this);
   });
 });
-const dbGet = (sql, params=[]) => new Promise((resolve, reject) => {
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
   db.get(sql, params, (err, row) => {
     if (err) return reject(err);
     resolve(row);
   });
 });
-const dbAll = (sql, params=[]) => new Promise((resolve, reject) => {
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
   db.all(sql, params, (err, rows) => {
     if (err) return reject(err);
     resolve(rows || []);
@@ -87,9 +87,9 @@ const dbAll = (sql, params=[]) => new Promise((resolve, reject) => {
 });
 
 const EMF_SLOT_LABELS = {
-  slot1: '1:00 – 1:15 PM',
-  slot2: '1:15 – 1:30 PM',
-  slot3: '1:30 – 1:45 PM',
+  slot1: '1:00 – 1:10 PM',
+  slot2: '1:10 – 1:20 PM',
+  slot3: '1:20 – 1:30 PM',
 };
 const EMF_SLOT_KEYS = Object.keys(EMF_SLOT_LABELS);
 
@@ -279,7 +279,7 @@ app.get('/email/verify', async (req, res) => {
   }
 });
 
-function setSessionCookie(res, payload){
+function setSessionCookie(res, payload) {
   const token = jwt.sign(payload, SESSION_SECRET, { expiresIn: '7d' });
   const sameSite = ['lax', 'strict', 'none'].includes(COOKIE_SAMESITE) ? COOKIE_SAMESITE : 'lax';
   res.cookie(COOKIE_NAME, token, {
@@ -292,7 +292,7 @@ function setSessionCookie(res, payload){
   return token;
 }
 
-function getSession(req){
+function getSession(req) {
   let raw = null;
   const auth = req.headers?.authorization || req.headers?.Authorization;
   if (auth && typeof auth === 'string' && auth.startsWith('Bearer ')) {
@@ -349,7 +349,7 @@ app.get('/seminars', (req, res) => {
   else query += ' ORDER BY date ASC, start_time ASC';
   db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    try { console.log(`[GET /seminars] scope=${scope} rows=${Array.isArray(rows) ? rows.length : 'err'}`); } catch {}
+    try { console.log(`[GET /seminars] scope=${scope} rows=${Array.isArray(rows) ? rows.length : 'err'}`); } catch { }
     res.json(rows);
   });
 });
@@ -549,7 +549,7 @@ app.post('/seminars', async (req, res) => {
     const conflict = await checkTimeConflict(db, s);
     if (conflict) return res.status(409).json({ error: 'Time conflict in room' });
     const stmt = db.prepare(`INSERT INTO seminars (date, start_time, end_time, speaker_name, speaker_email, speaker_bio, topic, abstract, room, seminar_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    stmt.run([s.date, s.start_time, s.end_time, s.speaker_name, s.speaker_email, s.speaker_bio || '', s.topic, s.abstract || '', s.room, s.seminar_type || 'Others'], function(err){
+    stmt.run([s.date, s.start_time, s.end_time, s.speaker_name, s.speaker_email, s.speaker_bio || '', s.topic, s.abstract || '', s.room, s.seminar_type || 'Others'], function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.status(201).json({ id: this.lastID });
     });
@@ -568,7 +568,7 @@ app.put('/seminars/:id', upload.single('speaker_photo'), async (req, res) => {
       SET date=?, start_time=?, end_time=?, speaker_name=?, speaker_email=?, speaker_bio=?, topic=?, abstract=?, room=?, seminar_type=?,
           speaker_photo = CASE WHEN ? != '' THEN ? ELSE speaker_photo END
       WHERE id=?`);
-    stmt.run([s.date, s.start_time, s.end_time, s.speaker_name, s.speaker_email, s.speaker_bio || '', s.topic, s.abstract || '', s.room, s.seminar_type || 'Others', photoPath, photoPath, id], function(err){
+    stmt.run([s.date, s.start_time, s.end_time, s.speaker_name, s.speaker_email, s.speaker_bio || '', s.topic, s.abstract || '', s.room, s.seminar_type || 'Others', photoPath, photoPath, id], function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ updated: this.changes });
     });
@@ -578,7 +578,7 @@ app.put('/seminars/:id', upload.single('speaker_photo'), async (req, res) => {
 // Delete seminar
 app.delete('/seminars/:id', (req, res) => {
   const id = Number(req.params.id);
-  db.run(`DELETE FROM seminars WHERE id = ?`, [id], function(err){
+  db.run(`DELETE FROM seminars WHERE id = ?`, [id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ deleted: this.changes });
   })
@@ -595,7 +595,7 @@ app.post('/seminars/:id/invite', (req, res) => {
     try {
       await sendSeminarInvitation({ recipients, seminar: row });
       res.json({ ok: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 });
 
@@ -619,16 +619,16 @@ app.post('/requests', upload.single('speaker_photo'), (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (row.cnt > 0) return res.status(409).json({ error: 'Similar request exists' });
     const stmt = db.prepare(`INSERT INTO seminar_requests(date, start_time, end_time, speaker_name, speaker_email, speaker_photo, speaker_bio, topic, abstract, room, submitter_name, submitter_email, status, seminar_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-    stmt.run([r.date, r.start_time, r.end_time, r.speaker_name || '', r.speaker_email || '', photoPath || '', r.speaker_bio || '', r.topic, r.abstract || '', r.room, r.submitter_name, r.submitter_email, 'pending', r.seminar_type || 'Others'], async function(err){
+    stmt.run([r.date, r.start_time, r.end_time, r.speaker_name || '', r.speaker_email || '', photoPath || '', r.speaker_bio || '', r.topic, r.abstract || '', r.room, r.submitter_name, r.submitter_email, 'pending', r.seminar_type || 'Others'], async function (err) {
       if (err) return res.status(500).json({ error: err.message });
       // notify coordinator
-      try { await notifyRequestCoordinator({ speaker_name: r.speaker_name||'', speaker_email: r.speaker_email||'', topic: r.topic, date: r.date, start_time: r.start_time, end_time: r.end_time, room: r.room }); } catch {}
+      try { await notifyRequestCoordinator({ speaker_name: r.speaker_name || '', speaker_email: r.speaker_email || '', topic: r.topic, date: r.date, start_time: r.start_time, end_time: r.end_time, room: r.room }); } catch { }
       // notify all admins (using admin_accounts.email)
       db.all(`SELECT email FROM admin_accounts WHERE email IS NOT NULL AND TRIM(email) != ''`, async (e2, rows) => {
         if (!e2 && Array.isArray(rows) && rows.length) {
           const recipients = rows.map(x => x.email).filter(Boolean);
           try {
-            const res2 = await notifyAdmins(recipients, { speaker_name: r.speaker_name||'', speaker_email: r.speaker_email||'', topic: r.topic, date: r.date, start_time: r.start_time, end_time: r.end_time, room: r.room });
+            const res2 = await notifyAdmins(recipients, { speaker_name: r.speaker_name || '', speaker_email: r.speaker_email || '', topic: r.topic, date: r.date, start_time: r.start_time, end_time: r.end_time, room: r.room });
             if (!res2?.ok) console.error('notifyAdmins failed:', res2?.error);
           } catch (e3) {
             console.error('notifyAdmins exception:', e3?.message || e3);
@@ -645,7 +645,7 @@ app.put('/requests/:id', (req, res) => {
   const id = Number(req.params.id);
   const r = req.body;
   const stmt = db.prepare(`UPDATE seminar_requests SET date=?, start_time=?, end_time=?, speaker_name=?, speaker_email=?, speaker_bio=?, topic=?, abstract=?, room=?, status=?, seminar_type=? WHERE id=?`);
-  stmt.run([r.date, r.start_time, r.end_time, r.speaker_name||'', r.speaker_email||'', r.speaker_bio||'', r.topic, r.abstract||'', r.room, r.status||'pending', r.seminar_type || 'Others', id], async function(err){
+  stmt.run([r.date, r.start_time, r.end_time, r.speaker_name || '', r.speaker_email || '', r.speaker_bio || '', r.topic, r.abstract || '', r.room, r.status || 'pending', r.seminar_type || 'Others', id], async function (err) {
     if (err) return res.status(500).json({ error: err.message });
     // Do not notify submitter here to avoid spamming during revisions.
     // Notifications are sent explicitly on approve/reject endpoints.
@@ -663,15 +663,15 @@ app.post('/requests/:id/approve', (req, res) => {
       const conflict = await checkTimeConflict(db, { date: reqRow.date, start_time: reqRow.start_time, end_time: reqRow.end_time, room: reqRow.room });
       if (conflict) return res.status(409).json({ error: 'Time conflict in room' });
       const stmt = db.prepare(`INSERT INTO seminars (date, start_time, end_time, speaker_name, speaker_email, speaker_photo, speaker_bio, topic, abstract, room, seminar_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
-      stmt.run([reqRow.date, reqRow.start_time, reqRow.end_time, reqRow.speaker_name, reqRow.speaker_email, reqRow.speaker_photo || '', reqRow.speaker_bio, reqRow.topic, reqRow.abstract, reqRow.room, reqRow.seminar_type || 'Others'], function(err){
+      stmt.run([reqRow.date, reqRow.start_time, reqRow.end_time, reqRow.speaker_name, reqRow.speaker_email, reqRow.speaker_photo || '', reqRow.speaker_bio, reqRow.topic, reqRow.abstract, reqRow.room, reqRow.seminar_type || 'Others'], function (err) {
         if (err) return res.status(500).json({ error: err.message });
-        db.run(`DELETE FROM seminar_requests WHERE id=?`, [id], async function(err2){
+        db.run(`DELETE FROM seminar_requests WHERE id=?`, [id], async function (err2) {
           if (err2) return res.status(500).json({ error: err2.message });
-          try { await notifySubmitter({ submitter_name: reqRow.submitter_name, submitter_email: reqRow.submitter_email, topic: reqRow.topic, status: 'approved' }); } catch {}
+          try { await notifySubmitter({ submitter_name: reqRow.submitter_name, submitter_email: reqRow.submitter_email, topic: reqRow.topic, status: 'approved' }); } catch { }
           res.json({ approved: true, seminar_id: stmt.lastID });
         });
       });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 });
 
@@ -680,9 +680,9 @@ app.post('/requests/:id/reject', (req, res) => {
   const id = Number(req.params.id);
   db.get(`SELECT submitter_name, submitter_email, topic FROM seminar_requests WHERE id=?`, [id], (err, info) => {
     if (err) return res.status(500).json({ error: err.message });
-    db.run(`DELETE FROM seminar_requests WHERE id=?`, [id], async function(err2){
+    db.run(`DELETE FROM seminar_requests WHERE id=?`, [id], async function (err2) {
       if (err2) return res.status(500).json({ error: err2.message });
-      try { await notifySubmitter({ submitter_name: info?.submitter_name || 'Submitter', submitter_email: info?.submitter_email, topic: info?.topic || '', status: 'rejected' }); } catch {}
+      try { await notifySubmitter({ submitter_name: info?.submitter_name || 'Submitter', submitter_email: info?.submitter_email, topic: info?.topic || '', status: 'rejected' }); } catch { }
       res.json({ rejected: true });
     });
   });
@@ -701,7 +701,7 @@ try {
       return res.sendFile(path.join(clientDir, 'index.html'));
     });
   }
-} catch {}
+} catch { }
 
 try {
   cron.schedule(EMF_REMINDER_CRON, () => {

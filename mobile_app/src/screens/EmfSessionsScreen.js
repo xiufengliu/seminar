@@ -62,13 +62,13 @@ export default function EmfSessionsScreen({ navigation }) {
           Manage Existing Submission
         </Button>
         <Text style={{ marginBottom: 12, color: '#475569' }}>
-          EMF sessions run the first Tuesday of each month from 1:00–2:30 PM and support up to three 15-minute presentation slots.
+          EMF sessions run the first Tuesday of each month from 1:00–2:30 PM and support up to three 10-minute presentation slots.
         </Text>
         {error ? <Text style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</Text> : null}
         {!sessions.length && !loading ? <Text>No scheduled EMF sessions yet.</Text> : null}
         {sessions.map((session) => {
           let dateLabel = session.session_date;
-          try { dateLabel = format(parseISO(session.session_date), 'EEEE, MMM d'); } catch {}
+          try { dateLabel = format(parseISO(session.session_date), 'EEEE, MMM d'); } catch { }
           const remaining = Math.max(0, (session.capacity || 3) - (session.presentations?.length || 0));
           return (
             <Card key={session.id} style={{ marginBottom: 16 }}>
@@ -82,15 +82,15 @@ export default function EmfSessionsScreen({ navigation }) {
                   <Text style={{ color: '#475569' }}>No presenters yet.</Text>
                 ) : (
                   <View>
-                {(session.presentations || []).map((p) => (
-                  <Chip key={p.id} style={{ marginBottom: 6 }} icon="account">
-                    {p.slot_label ? `${p.slot_label} · ` : ''}
-                    {p.presenter_name}
-                    {p.title ? ` – ${p.title}` : ''}
-                  </Chip>
-                ))}
-              </View>
-            )}
+                    {(session.presentations || []).map((p) => (
+                      <Chip key={p.id} style={{ marginBottom: 6 }} icon="account">
+                        {p.slot_label ? `${p.slot_label} · ` : ''}
+                        {p.presenter_name}
+                        {p.title ? ` – ${p.title}` : ''}
+                      </Chip>
+                    ))}
+                  </View>
+                )}
               </Card.Content>
             </Card>
           );
